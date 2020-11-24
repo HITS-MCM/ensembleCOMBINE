@@ -57,10 +57,10 @@ These files are explained in step 4.
 
 Steps
 
-1- decompress the directory 'example-git'
+1- decompress the directory 'example-git2'
 In the directory containing the zip file:
-> unzip example-git.zip
-> cd example-git
+> unzip example-git2.zip
+> cd example-git2
 
 2- compilation of code
 This step is optional, as the file 'combine.exe' is already available.
