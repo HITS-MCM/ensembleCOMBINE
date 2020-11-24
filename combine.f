@@ -30,11 +30,11 @@ c   MODIFICATIONS.
       IMPLICIT      DOUBLE PRECISION (A-H,O-Z)
 
       parameter    (maxatdrg = 200)
-      parameter    (maxcompl = 100)
+      parameter    (maxcompl = 200)
       PARAMETER    (MAXATOM = 8000)
       PARAMETER    (MAXRES  =  700)
 
-      parameter    (maxrow= 100)
+      parameter    (maxrow=1500)
       parameter    (maxcol=1500)
       parameter    (maxadd=  10)
       parameter    (maxrank =20)
@@ -47,7 +47,7 @@ c   MODIFICATIONS.
       real*8        b(maxcol,maxcol)
 
       integer contour,ptr, idel, nsc,imat, nlv
-      integer ielec,nad,ncomp,ntest
+      integer ielec,nad,ncomp,ntest,nconf,iave 
       integer varselect(maxcol),nvtold
       integer randtest,ncross
       integer ftrim,btrim
@@ -126,9 +126,9 @@ c-------------------------------------------------------------------------------
          endif
       enddo
 
-      call readinp(8,idel,nsc,imat,nlv,ielec,ncomp,ntest,nad,
-     &     randtest,ncross,dielect,ptr,cutptr,comp,drugname,y,add)
-            
+      call readinp(8,idel,nsc,imat,nlv,ielec,ncomp,ntest,nconf,nad,
+     &  randtest,ncross,dielect,ptr,cutptr,comp,drugname,y,add,iave)
+    
       open(unit=20,file='combine.log')
       
       call storetime('Initialization:       ',ttime,ntime)
@@ -140,13 +140,13 @@ c-------------------------------------------------------------------------------
       call setime
 
       if (imat.eq.0) then
-         call build_xmatrix(ielec,dielect,ncomp,ntest,comp,drugname,
-     &        name,xraw,y,add,dres,multres,watMol)
-         call golpe_matrix(nvt,ncomp,ntest,xraw,y,name,comp,
+         call build_xmatrix(ielec,dielect,ncomp,ntest,nconf,comp,
+     &        drugname,name,xraw,y,add,dres,multres,watMol)
+         call golpe_matrix(nvt,ncomp,ntest,nconf,xraw,y,name,comp,
      &        imat,labres,nad,multres,watMol)
       else
-         call read_xmatrix(ncomp,ntest,comp,drugname,name,add,xraw,y,
-     &        nres,labres,multres)
+         call read_xmatrix(ncomp,ntest,nconf,comp,drugname,name,add,
+     &        xraw,y,nres,labres,multres)
       endif
 
 c      verbose = .true.
@@ -156,7 +156,7 @@ c     &     imat,labres,nad)
 c --- Data Pretreatment
 
       if (ptr.ne.0 .or. cutptr.ne.0.0) then
-         call pretreat_xmatrix(nvt,nvtold,nad,ncomp+ntest,
+         call pretreat_xmatrix(nvt,nvtold,nad,ncomp+ntest,nconf,
      &        xraw,ptr,cutptr,varselect)
       else
          nvtold = nvt
@@ -221,7 +221,7 @@ c --- Apply PLS to the X-matrix
 c-------------------------------------------------------------------------------
 
       call setime
-      nrow  = ncomp
+      nrow  = ncomp*nconf
       ncol  = nvt
       nrank = min(ncol,nrow-1,maxrank,nlv)
 
@@ -233,8 +233,10 @@ c-------------------------------------------------------------------------------
   110    format (' Number of Test Values :',i6)
       end if
 
-      call qsar(nlv,idel,nsc,nrank,nrow,ncol,ntest,xraw,y,contour,cutinp
-     &     ,randtest,ncross,name,comp,coef,varselect,nvtold,vardesc,b)
+      call qsar(nlv,idel,nsc,nrank,nrow,ncol,ntest,ncomp,nconf,xraw,y,
+     &     contour,cutinp,randtest,ncross,name,comp,coef,varselect,
+     &     nvtold,vardesc,b,iave)
+
       call storetime('PLS regression:       ',ttime,ntime)
 
 c-------------------------------------------------------------------------------
@@ -253,7 +255,7 @@ c --- the ligand itself when transfering from ncol to nres
 
          ymax = -100.0d0
          imax = 0
-         do i = 1, ncomp+ntest
+         do i = 1, (ncomp+ntest)*nconf
             if (y(i).ge.ymax) then
                imax = i
             ymax = y(i)
@@ -269,7 +271,7 @@ c --- the ligand itself when transfering from ncol to nres
       call readxyz(16,11,xyz)
       call seldrug(20,drugname(imax),dres,natom,
      &     multres,watMol,ndatm,datm)
-      
+
       close(10)
       close(11)
         
@@ -396,8 +398,8 @@ c-------------------------------------------------------------------------------
 c
 c===============================================================================
 c
-      subroutine build_xmatrix(ielec,dielect,ncomp,ntest,comp,drugname,
-     &     name,xraw,y,add,dres,multres,watMol)
+      subroutine build_xmatrix(ielec,dielect,ncomp,ntest,nconf,comp,
+     &     drugname,name,xraw,y,add,dres,multres,watMol)
 
 c-------------------------------------------------------------------------------
 c --- Computes the X-matrix from the set of complexes
@@ -406,11 +408,11 @@ c-------------------------------------------------------------------------------
       implicit     double precision (a-h,o-z)
 
       parameter    (maxatdrg = 200)
-      parameter    (maxcompl = 100)
+      parameter    (maxcompl = 200)
       PARAMETER    (MAXATOM = 8000)
       PARAMETER    (MAXRES  =  700)
 
-      parameter    (maxrow= 100)
+      parameter    (maxrow=1500)
       parameter    (maxcol=1500)
       parameter    (maxadd=  10)
       parameter    (maxrank =20)
@@ -420,7 +422,7 @@ c-------------------------------------------------------------------------------
       dimension     ele(maxres), vdw(maxres)
       character*4   drug, drugname(maxcompl), name(maxrow)
       integer       dres, datm(maxatdrg), ratm(maxatdrg)
-      integer       ielec
+      integer       ielec,nconf
       integer       multres,watMol
 
       real*8        dielect
@@ -445,7 +447,7 @@ c-------------------------------------------------------------------------------
       COMMON /TOPA/ NSPSOL, NSPM, NATOM
       common /variables/ nvt,nvar,nad
 
-      do ic = 1, ncomp+ntest
+      do ic = 1, (ncomp+ntest)*nconf
 c        To print the complex name in the log file too
          write(16,*)'Complex : ',comp(ic)
 
@@ -553,8 +555,8 @@ c        To print the complex name in the log file too
       end
 c===============================================================================
 c
-      subroutine read_xmatrix(ncomp,ntest,comp,drugname,name,add,xraw,y,
-     &     nres,labres,multres)
+      subroutine read_xmatrix(ncomp,ntest,nconf,comp,drugname,name,add,
+     &     xraw,y,nres,labres,multres)
 
 c-------------------------------------------------------------------------------
 c --- Read the X-matrix from an external file
@@ -562,9 +564,9 @@ c-------------------------------------------------------------------------------
 
       implicit     double precision (a-h,o-z)
 
-      parameter    (maxrow= 100)
+      parameter    (maxrow=1500)
       parameter    (maxcol=1500)
-      parameter    (maxcompl = 100)
+      parameter    (maxcompl = 200)
       parameter    (maxadd=  10)
       parameter    (maxres=700)
 
@@ -578,18 +580,18 @@ c-------------------------------------------------------------------------------
 
       character*80 borrar
 
-      integer  l,multres
+      integer  l,multres,nconf
 
       logical  efile_exists
 
-      common /variables/ nvt,nvar,nad     
+      common /variables/ nvt,nvar,nad 
 
       write(6,'(a,/)') 'Reading intractions from previous analysis:'
 
       efile_exists = .false.
       inquire(file='combine.dat',exist=efile_exists)
       if (efile_exists) then
-         do l=1,ncomp+ntest
+         do l=1,(ncomp+ntest)*nconf
 
             write(6,'(a7,x,a7,x,a12)')'Reading',comp(l),'interactions'
             
@@ -599,9 +601,10 @@ c-------------------------------------------------------------------------------
             read(10,*) n
             read(10,*) m
 
-            if(ncomp+ntest.gt.m)then
+            if((ncomp+ntest)*nconf.gt.m)then
                write(*,*) 'ERROR: Number of complexes do not match'
-               write(*,*) '       Current:',ncomp+ntest,' Loaded:',m
+               write(*,*) '       Current:',(ncomp+ntest)*nconf,
+     & ' Loaded:',m
                
                stop
             endif
@@ -673,7 +676,7 @@ c----------------------------------------------------------
       nvt = n-1 
       nvar= (n-1)/2
       
-      do i=1,ncomp+ntest
+      do i=1,(ncomp+ntest)*nconf
          name(i)=drugname(i)        
       enddo
 
@@ -683,8 +686,8 @@ c----------------------------------------------------------
       open (30,file='energy_values.dat')
       write(30,'(a)') 'COMBINE analysis '
       write(30,'(i5)') nvt+1
-      write(30,'(i5)') ncomp+ntest
-      do i = 1, ncomp+ntest
+      write(30,'(i5)') (ncomp+ntest)*nconf
+      do i = 1, (ncomp+ntest)*nconf
 c     write(30,'(i5)') i
          write(30,'(a5,i5,3x,a8)') '#####',i,comp(i)
          do j = 1, nvt
@@ -701,8 +704,8 @@ c     write(30,'(i5)') i
 c     
 c===============================================================================
 c
-      subroutine golpe_matrix(nvt,ncomp,ntest,xraw,y,name,comp,imat,
-     &     labres,nad,multres,watMol)
+      subroutine golpe_matrix(nvt,ncomp,ntest,nconf,xraw,y,name,comp,
+     &     imat,labres,nad,multres,watMol)
 
 c-------------------------------------------------------------------------------
 c --- Writes the energy partition in golpe-4.5 input format
@@ -710,11 +713,11 @@ c-------------------------------------------------------------------------------
 
       implicit     double precision (a-h,o-z)
 
-      parameter    (maxrow=100)
+      parameter    (maxrow=1500)
       parameter    (maxcol=1500)
       PARAMETER    (MAXRES=700)
 
-      integer      nvt,ncomp,ntest,multres,watMol,l
+      integer      nvt,ncomp,ntest,nconf,multres,watMol,l
       dimension    xraw(maxrow,maxcol),y(maxrow)
       character*4  name(maxrow)
       character*40 comp(maxrow)
@@ -723,8 +726,8 @@ c-------------------------------------------------------------------------------
       open (30,file='energy_values.dat')
       write(30,'(a)') 'COMBINE analysis '
       write(30,'(i5)') nvt+1
-      write(30,'(i5)') ncomp+ntest
-      do i = 1, ncomp+ntest
+      write(30,'(i5)') (ncomp+ntest)*nconf
+      do i = 1, (ncomp+ntest)*nconf
 c     write(30,'(i5)') i
          write(30,'(a5,i5,3x,a8)') '#####',i,comp(i)
          do j = 1, nvt
@@ -737,8 +740,8 @@ c     write(30,'(i5)') i
       open (30,file='combine.dat')
       write(30,'(a)') 'COMBINE analysis '
       write(30,'(i5)') nvt+1
-      write(30,'(i5)') ncomp+ntest
-      do i = 1, ncomp+ntest
+      write(30,'(i5)') (ncomp+ntest)*nconf
+      do i = 1, (ncomp+ntest)*nconf
          l=1     
          write(30,'(i5)') i
          write(30,'(a8)') comp(i)
@@ -763,7 +766,7 @@ c     write(30,'(i5)') i
          write(30,'(f12.6,3x,a4)') y(i),'EXP '
       enddo
       close(30)
-      
+
       return
       end
 c
@@ -1385,7 +1388,7 @@ c-------------------------------------------------------------------------------
       if (numbnd.gt.500 .or. numang.gt.900 .or. nptra.gt.900 .or.
      +     nphb.gt.200 .or. natyp.gt.60 .or. nttyp.gt.1830 .or.
      +     nbonh.gt.4500 .or. nbona.gt.4500 .or. ntheth.gt.9000 .or.
-     +     ntheta.gt.7500 .or. nphih.gt.16500 .or. nphia.gt.12000 .or.
+     +     ntheta.gt.7500 .or. nphih.gt.16500 .or. nphia.gt.13000 .or.
      +     next.gt.45000 .or. natom.gt.maxatom .or. nres.gt.maxres) then
          write(no,*) 'numbnd (max 500)   = ', numbnd
          write(no,*) 'numang (max 900)   = ', numang
@@ -1835,9 +1838,9 @@ c
 c===============================================================================
 c
    
-      subroutine qsar(nlv,idel,nsc,nrank,nrow,ncol,ntest,xraw,y,cont,
-     &     cutinp,randtest,ncross,name,comp,cf,varselect,nvtold,
-     &     vardesc,b)
+      subroutine qsar(nlv,idel,nsc,nrank,nrow,ncol,ntest,ncomp,nconf,
+     &     xraw,y,cont,cutinp,randtest,ncross,name,comp,cf,varselect,
+     &     nvtold,vardesc,b,iave)
 
 c-------------------------------------------------------------------------------
 c     ##  subroutine qsar  --  compute multiple regression QSAR model  ##
@@ -1853,18 +1856,18 @@ c-------------------------------------------------------------------------------
       implicit none
 
       integer maxrow,maxcol,nvt,nvar,nad,maxscr,maxrank,maxcompl
-      parameter (maxrow= 100)
+      parameter (maxrow=1500)
       parameter (maxcol=1500)
       parameter (maxscr= 100)
       parameter (maxrank=20)
-      parameter (maxcompl = 100)
+      parameter (maxcompl = 200)
 
       integer i,j,k
       integer nrank,kopt
-      integer nrow,ncol,ntest
+      integer nrow,ncol,ntest,nconf,ncomp
       integer nlv,idel,nsc,nscram,cont
       integer varselect(maxcol),nvtold
-      integer randtest,ncross
+      integer randtest,ncross,iave
 
       real*8 ybar,ystd,sigma,z,dm,dt
       real*8 b(maxcol,maxcol),bs(maxcol,maxcol)
@@ -1887,14 +1890,14 @@ c-------------------------------------------------------------------------------
 c     autoscale the response vector and property matrix values
 c-------------------------------------------------------------------------------
 
-      call yscale (nsc,nrow,ntest,y,ybar,ystd)
+      call yscale (nsc,nrow,nconf,ntest,y,ybar,ystd)
       do i = 1, ncol
-         do j = 1, nrow+ntest
+         do j = 1, nrow+ntest*nconf
             xref(j,i) = xraw(j,i)
          end do       
       end do
 
-      call xscale(nsc,nrow,ncol,ntest,xref,xbar,xstd,w)
+      call xscale(nsc,nrow,ncol,ntest,nconf,xref,xbar,xstd,w)
 
 c-------------------------------------------------------------------------------
 c     transform the properties via partial least squares
@@ -1905,8 +1908,9 @@ c-------------------------------------------------------------------------------
      &     ,verbose)
       verbosetmp=.true.
    
-      call plsmodel (nlv,nsc,nrow,ncol,ntest,comp,y,ybar,q2r,
-     &     randtest,ncross,ystd,xref,xbar,w,b,name,verbose,verbosetmp)
+      call plsmodel (nlv,nsc,nrow,ncol,ntest,ncomp,comp,nconf,y,ybar,
+     & q2r,randtest,ncross,ystd,xref,xbar,w,b,name,verbose,verbosetmp,
+     & iave)
 
 c-------------------------------------------------------------------------------
 c     Scrambling of activities
@@ -1914,7 +1918,7 @@ c-------------------------------------------------------------------------------
 
       if (idel .ne. 0) then
         nscram = 100
-        call scramble(nscram,nrow+ntest,y,yr)
+        call scramble(nscram,nrow+(ntest*nconf),nconf,y,yr)
          
         do k = 1, nlv
             q2sav(k) = 0.0d0
@@ -1922,16 +1926,16 @@ c-------------------------------------------------------------------------------
         enddo
         do i = 1, nscram
             write(16,'(/,a,i4)') ' SCRAMBLE TRIAL: ',i
-            do j = 1, nrow+ntest
+            do j = 1, nrow+ntest*nconf
                ys(j) = yr(j,i)
             enddo
             verbose=.false.
             call nipals (nlv,nrow,ncol,ys,xref,nrank,bs,vardesc,
      &           varselect,nvtold,verbose)
             verbosetmp=.false.
-            call plsmodel (nlv,nsc,nrow,ncol,ntest,comp,ys,ybar,q2s,
-     &           randtest,ncross,ystd,xref,xbar,w,bs,name,verbose
-     &           ,verbosetmp)
+            call plsmodel (nlv,nsc,nrow,ncol,ntest,ncomp,comp,nconf,ys,
+     &        ybar,q2s,randtest,ncross,ystd,xref,xbar,w,bs,name,verbose,
+     &        verbosetmp,iave)
             do k = 1, nlv
                q2sav(k) = q2sav(k) + q2s(k)
                q2sqr(k) = q2sqr(k) + q2s(k)*q2s(k)
@@ -1982,7 +1986,7 @@ c-------------------------------------------------------------------------------
 c
 c===============================================================================
 c
-      subroutine yscale (nsc,nrow,ntest,y,ybar,ystd)
+      subroutine yscale (nsc,nrow,nconf,ntest,y,ybar,ystd)
  
 c------------------------------------------------------------------------------
 c                                                            
@@ -1993,30 +1997,30 @@ c------------------------------------------------------------------------------
  
       implicit none
       integer maxrow
-      parameter (maxrow=100)
-      integer i,nrow,ntest,nsc
+      parameter (maxrow=1500)
+      integer i,nrow,ntest,nsc,nconf
       real*8 ybar,ystd
       real*8 y(maxrow),yraw(maxrow)
 c
 c     center and scale the response data values
 c
       ybar = 0.0d0
-      do i = 1, nrow
+      do i = 1, nrow, nconf
          yraw(i) = y(i)
          ybar = ybar + y(i)
       end do
-      ybar = ybar / dble(nrow)
+      ybar = ybar / dble(nrow/nconf)
       if (nsc .eq. 1) then
         ystd = 0.0d0
-        do i = 1, nrow
+        do i = 1, nrow, nconf
            ystd = ystd + (y(i)-ybar)**2
         end do
-        ystd = sqrt(ystd/dble(nrow-1))
+        ystd = sqrt(ystd/dble((nrow/nconf)-1))
         if (ystd .eq. 0.0d0)  ystd = 1.0d0
       else
         ystd = 1.0d0
       endif
-      do i = 1, nrow+ntest
+      do i = 1, nrow+ntest*nconf
          y(i) = (y(i)-ybar) / ystd
       end do
       return
@@ -2024,7 +2028,7 @@ c
 c
 c===============================================================================
 c
-      subroutine xscale(nsc,nrow,ncol,ntest,x,xbar,xstd2,w)
+      subroutine xscale(nsc,nrow,ncol,ntest,nconf,x,xbar,xstd2,w)
 
 c------------------------------------------------------------------------------
 c     This subroutine carries out the scaling of the X-matrix. Several
@@ -2045,10 +2049,10 @@ c------------------------------------------------------------------------------
       implicit none
 
       integer maxrow,maxcol,nvt,nvar,nad
-      parameter (maxrow=100)
+      parameter (maxrow=1500)
       parameter (maxcol=1500)
       integer i,j,k,iblnu,iblock(20,2)
-      integer nrow,ncol,ntest,nsc
+      integer nrow,ncol,ntest,nsc,nconf
       real*8 x(maxrow,maxcol),w(maxcol)
       real*8 xbar(maxcol),xstd(maxcol),sspar(20),sstot,stcut
       parameter (stcut=1E-4)
@@ -2188,7 +2192,7 @@ c
 c     apply weights
 c     
       do j = 1, ncol
-         do i = 1, nrow+ntest
+         do i = 1, nrow+ntest*nconf
             if(xbar(j).eq.0.0d0.and.w(j).eq.0.0d0)then
                x(i,j)=0.0d0
             else
@@ -2292,7 +2296,7 @@ c_______________________________________________________________________________
  
       implicit none
       integer maxrow,maxcol,maxrank
-      parameter (maxrow=100)
+      parameter (maxrow=1500)
       parameter (maxcol=1500)
       parameter (maxrank=20)
 
@@ -2486,6 +2490,7 @@ c-------------------------------------------------------------------------------
             end do
          end do         
          call invert (m,maxrank,pw)
+
          do i = 1, ncol
             do j = 1, m
                wpw(i,j) = 0.0d0
@@ -2560,18 +2565,19 @@ c     ##                                                           ##
 c     ###############################################################
 c
 c
-      subroutine plsmodel (nlv,nsc,nrow,ncol,ntest,comp,y,ybar,q2,
-     &     randtest,ncross,ystd,x,xbar,w,b,name,verbose1,verbosetmp)
+      subroutine plsmodel (nlv,nsc,nrow,ncol,ntest,ncomp,comp,nconf,y,
+     &    ybar,q2,randtest,ncross,ystd,x,xbar,w,b,name,verbose1,
+     &    verbosetmp,iave)
       implicit none
       integer maxrow,maxcol,maxrank,nvt,nvar,nad,maxcompl
-      parameter (maxrow=100)
+      parameter (maxrow=1500)
       parameter (maxcol=1500)
       parameter (maxrank=20)
-      parameter (maxcompl = 100)
+      parameter (maxcompl = 200)
 
-      integer i,j,k,m,extrap
-      integer nrank,nlv,nsc
-      integer nrow,ncol,ntest,npred
+      integer i,j,k,l,m,extrap,ind
+      integer nrank,nlv,nsc,iave
+      integer nrow,ncol,ntest,npred,nconf,ncomp
       integer nvtold
       integer randtest,ncross
       integer ftrim,btrim
@@ -2586,7 +2592,7 @@ c
       real*8 xmax(maxcol),xmin(maxcol)
       real*8 y(maxrow),x(maxrow,maxcol)
       real*8 yraw(maxrow),xraw(maxrow,maxcol)
-      real*8 yfit(maxrow),ypred(maxrow)
+      real*8 yfit(maxrow),ypred(maxrow),ypart(maxrow)
       real*8 b(maxcol,maxcol)
       real*8 q2(maxrank)
       character*4 name(maxrow)
@@ -2602,11 +2608,11 @@ c-------------------------------------------------------------------------------
 c     regenerate the original unscaled response and properties
 c-------------------------------------------------------------------------------
 
-      do i = 1, nrow+ntest
+      do i = 1, nrow+ntest*nconf
          yraw(i) = y(i)*ystd + ybar
       end do
       do i = 1, ncol
-         do j = 1, nrow+ntest
+         do j = 1, nrow+ntest*nconf
             xraw(j,i) = (x(j,i)/w(i)) + xbar(i)
             if (w(i).eq.0) xraw(j,i)=0.0d0 !!! NAN's=0 ,from variables with dev=0
          end do
@@ -2635,14 +2641,14 @@ c     set the cross-validation to use the leave-one-out method
 c-------------------------------------------------------------------------------
 
       verbose2 = .false.
-      npred = nrow - ncross
+      npred = ncomp - ncross
       nrank = min(ncol,npred-1,nlv)
 
 c-------------------------------------------------------------------------------
 c     compute the PLSR model fit for each rank with leave N out crossval.
 c-------------------------------------------------------------------------------
       if (verbosetmp) open(unit=99,file='table1.dat')
-            
+
       do m = 1, nrank
 
          call int2str(m,chartemp)
@@ -2653,28 +2659,53 @@ c-------------------------------------------------------------------------------
             open(unit=32,file=combine)
          endif
 
-         do i = 1, nrow
-            yfit(i) = 0.0d0
-            do j = 1, ncol
-               yfit(i) = yfit(i) + b(j,m)*x(i,j)
+C opt 1: arithmetic mean
+         if (iave .eq. 1) then
+            do i = 1, ncomp
+               yfit(i) = 0.0d0
+               do k = 1, nconf 
+                  ypart(k) = 0.0d0
+                  ind = (i - 1)*nconf + k
+                  do j = 1, ncol
+                     ypart(k) = ypart(k) + b(j,m)*x(ind,j)
+                  end do
+                  ypart(k) = ypart(k)*ystd + ybar
+                  yfit(i) = yfit(i) + ypart(k)
+               end do
+               yfit(i) = yfit(i) / nconf
             end do
-            yfit(i) = yfit(i)*ystd + ybar
-         end do
 
-         rsq = rsquared (nrow,yraw,yfit)
-         rave = abserror (nrow,yraw,yfit)
-         rrms = rmserror (nrow,yraw,yfit)
+C opt Y: exponential mean 
+         else
+            do i = 1, ncomp
+               yfit(i) = 0.0d0
+               do k = 1, nconf
+                  ypart(k) = 0.0d0
+                  ind = (i - 1)*nconf + k
+                  do j = 1, ncol
+                     ypart(k) = ypart(k) + b(j,m)*x(ind,j)
+                  end do
+                  ypart(k) = ypart(k)*ystd + ybar
+                  yfit(i) = yfit(i) + exp(-1.0*ypart(k))
+               end do
+               yfit(i) = -1.0*log(yfit(i) / nconf)
+            end do
+         endif
+
+         rsq = rsquared ((nrow/nconf),yraw,yfit,nconf)
+         rave = abserror ((nrow/nconf),yraw,yfit,nconf)
+         rrms = rmserror ((nrow/nconf),yraw,yfit,nconf)
 
 c-------------------------------------------------------------------------------
 c     get the cross-validated predictions for the current rank
 c-------------------------------------------------------------------------------
 
-         call crossval(randtest,ncross,nrow,npred,ncol,nlv,name,yraw
-     &        ,ybar,xraw,nsc,ntest,m,nvtold,ypred)
+         call crossval(randtest,ncross,nrow,npred,ncol,nconf,nlv,
+     &        name,yraw,ybar,xraw,nsc,ntest,m,nvtold,ypred,iave)
        
-         qsq  = qsquared (nrow,yraw,ypred,ybar)
-         qave = abserror (nrow,yraw,ypred)
-         qrms = rmserror (nrow,yraw,ypred)
+         qsq  = qsquared ((nrow/nconf),yraw,ypred,ybar,nconf)
+         qave = abserror ((nrow/nconf),yraw,ypred,nconf)
+         qrms = rmserror ((nrow/nconf),yraw,ypred,nconf)
          q2(m)= qsq
 
 c-------------------------------------------------------------------------------
@@ -2685,9 +2716,10 @@ c-------------------------------------------------------------------------------
             write (6,10)  m
  10         format (/,' Targets, Linear Fit and Cross-Validated',
      &              ' Predictions for Rank',i3,' :',/)
-            do i = 1, nrow
-               write (6,20)  i,comp(i),yraw(i),yfit(i),ypred(i)
-               write (32,21) comp(i),yraw(i),yfit(i),ypred(i)
+            do i = 1, ncomp
+               ind=(i - 1)*nconf + 1
+               write (6,20)  ind,comp(ind),yraw(ind),yfit(i),ypred(i)
+               write (32,21) comp(ind),yraw(ind),yfit(i),ypred(i)
  20            format (i8,6x,a7,3(1x,1f12.4))
  21            format (a7,3(1x,1f12.4),3x,'train')
                
@@ -2708,36 +2740,86 @@ c-------------------------------------------------------------------------------
                write (6,40)
  40            format (/,'Target and Predicted Values for Test Set :',/)
             endif
-                                     
-            do i = 1, ntest
-               k = nrow + i
-               yfit(k) = 0.0d0
-               do j = 1, ncol
-                  yfit(k) = yfit(k) + b(j,m)*x(k,j)
-               end do
-               yfit(k) = yfit(k)*ystd + ybar
-               extrap = 0
-               do j = 1, ncol
-                  if (x(k,j) .gt. xmax(j))  extrap = extrap + 1
-                  if (x(k,j) .lt. xmin(j))  extrap = extrap + 1
-               end do
-               if (verbose1) then               
-                  if (extrap .eq. 0) then
-                     write (6,50)  i,comp(k),yraw(k),yfit(k)
- 50                  format (i8,6x,a7,2(1x,1f12.4))
-                  else
-                     write (6,60)  i,comp(k),yraw(k),yfit(k),extrap  
-                  end if
-                  write(32,61) comp(k),yraw(k),yfit(k), 0.0d0
- 60               format (i8,6x,a7,2(1x,1f12.4),3x,'with',
-     &                 i5,' Extrapolation')
+                           
+C opt 1: arithmetic mean                          
+            if (iave .eq. 1) then
+               do i = 1, ntest
+                  k = ncomp + i
+                  yfit(k) = 0.0d0
+                  do l = 1, nconf
+                     ypart(l) = 0.0d0
+                     ind = (k - 1)*nconf + l
+                     do j = 1, ncol
+                        ypart(l) = ypart(l) + b(j,m)*x(ind,j)
+                     end do
+                     ypart(l) = ypart(l)*ystd + ybar
+                     yfit(k) = yfit(k) + ypart(l)
+                     extrap = 0
+                     do j = 1, ncol
+                        if (x(ind,j) .gt. xmax(j))  extrap = extrap + 1
+                        if (x(ind,j) .lt. xmin(j))  extrap = extrap + 1
+                     end do
+                     if (verbose1) then
+                        if (extrap .eq. 0) then
+                           write (6,50)  i,comp(ind),yraw(ind),ypart(l)
+ 50                     format (i8,6x,a7,2(1x,1f12.4))
+                        else
+                           write (6,60)  i,comp(ind),yraw(ind),ypart(l),
+     &                                   extrap
+                        end if
+ 60                     format (i8,6x,a7,2(1x,1f12.4),3x,'with',
+     &                       i5,' Extrapolation')
+                    endif
+                  end do
+                  yfit(k) = yfit(k) / nconf  
+                  write(69,*) yraw(ind),yfit(k)
+                  write(32,61) comp(ind),yraw(ind),yfit(k), 0.0d0 
  61               format (a7,3f12.4,3x,'test')
-               endif
-               write(69,*) yraw(k),yfit(k)
-            end do
-            qsq2  = qsquared (ntest,yraw(nrow+1),yfit(nrow+1),ybar)
-            qave2 = abserror (ntest,yraw(nrow+1),yfit(nrow+1))
-            qrms2 = rmserror (ntest,yraw(nrow+1),yfit(nrow+1))
+               end do
+
+C opt 2: exponential mean
+            else
+               do i = 1, ntest
+                  k = ncomp + i
+                  yfit(k) = 0.0d0
+                  do l = 1, nconf
+                     ypart(l) = 0.0d0
+                     ind = (k - 1)*nconf + l
+                     do j = 1, ncol
+                        ypart(l) = ypart(l) + b(j,m)*x(ind,j)
+                     end do
+                     ypart(l) = ypart(l)*ystd + ybar
+                     yfit(k) = yfit(k) + exp(-1.0*ypart(l))
+                     extrap = 0
+                     do j = 1, ncol
+                        if (x(ind,j) .gt. xmax(j))  extrap = extrap + 1
+                        if (x(ind,j) .lt. xmin(j))  extrap = extrap + 1
+                     end do
+                     if (verbose1) then
+                        if (extrap .eq. 0) then
+                           write (6,51)  i,comp(ind),yraw(ind),ypart(l)
+ 51                        format (i8,6x,a7,2(1x,1f12.4))
+                        else
+                           write (6,65)  i,comp(ind),yraw(ind),ypart(l),
+     &                                   extrap
+                        end if
+ 65                     format (i8,6x,a7,2(1x,1f12.4),3x,'with',
+     &                       i5,' Extrapolation')
+                    endif
+                  end do
+                  yfit(k) = -1.0*log(yfit(k) / nconf)
+                  write(69,*) yraw(ind),yfit(k)
+                  write(32,66) comp(ind),yraw(ind),yfit(k), 0.0d0
+ 66               format (a7,3f12.4,3x,'test')
+               end do           
+            endif 
+
+            qsq2  = qsquared (ntest,yraw(nrow+1),yfit((nrow/nconf)+1),
+     &              ybar,nconf)
+            qave2 = abserror (ntest,yraw(nrow+1),yfit((nrow/nconf)+1),
+     &              nconf)
+            qrms2 = rmserror (ntest,yraw(nrow+1),yfit((nrow/nconf)+1),
+     &              nconf)
 
             if (verbose1) then
                write (6,70)  qsq2,qave2,qrms2
@@ -2840,7 +2922,7 @@ c
          if (a(icol,icol) .eq. 0.0d0) then
             write (6,30)
    30       format (/,' INVERT  --  Cannot Invert a Singular Matrix')
-            stop
+C            stop
          end if
          pivot = a(icol,icol)
          a(icol,icol) = 1.0d0
@@ -2883,11 +2965,11 @@ c     "rsquared" computes the correlation coefficient between a set
 c     of observed values "x" and a set of calculated values "y"
 c
 c
-      function rsquared (n,x,y)
+      function rsquared (n,x,y,nconf)
       implicit none
       integer maxrow
-      parameter (maxrow=100)
-      integer i,n
+      parameter (maxrow=1500)
+      integer i,n,ind,nconf
       real*8 rsquared
       real*8 xyterm,x2term,y2term
       real*8 xbar,xdiff(maxrow)
@@ -2898,13 +2980,15 @@ c
       xbar = 0.0d0
       ybar = 0.0d0
       do i = 1, n
-         xbar = xbar + x(i)
+         ind=(i - 1)*nconf + 1
+         xbar = xbar + x(ind)
          ybar = ybar + y(i)
       end do
       xbar = xbar / dble(n)
       ybar = ybar / dble(n)
       do i = 1, n
-         xdiff(i) = x(i) - xbar
+         ind=(i - 1)*nconf + 1
+         xdiff(i) = x(ind) - xbar
          ydiff(i) = y(i) - ybar
       end do
       xyterm = 0.0d0
@@ -2935,11 +3019,11 @@ c     calculated values "y"; the mean of the training set (which is
 c     not necessarily the mean of the x's) is input via "xbar"
 c
 c
-      function qsquared (n,x,y,xbar)
+      function qsquared (n,x,y,xbar,nconf)
       implicit none
       integer maxrow
-      parameter (maxrow=100)
-      integer i,n
+      parameter (maxrow=1500)
+      integer i,n,ind,nconf
       real*8 qsquared
       real*8 xbar,yxterm,xterm
       real*8 x(maxrow),y(maxrow)
@@ -2958,8 +3042,9 @@ c
       yxterm = 0.0d0
       xterm = 0.0d0
       do i = 1, n
-         yxterm = yxterm + (y(i)-x(i))**2
-         xterm = xterm + (x(i)-xbar)**2
+         ind=(i - 1)*nconf + 1
+         yxterm = yxterm + (y(i)-x(ind))**2
+         xterm = xterm + (x(ind)-xbar)**2
       end do
       qsquared = 0.0d0
       if (xterm .ne. 0.0d0)  qsquared = 1.0d0 - yxterm/xterm
@@ -2980,18 +3065,19 @@ c     "abserror" computes the average absolute error between a set
 c     of "observed" values, x, and a set of "calculated" values, y
 c
 c
-      function abserror (n,x,y)
+      function abserror (n,x,y,nconf)
       implicit none
       integer maxrow
-      parameter (maxrow=100)
-      integer i,n
+      parameter (maxrow=1500)
+      integer i,n,ind,nconf
       real*8 abserror,sum
       real*8 x(maxrow),y(maxrow)
 c
 c
       sum = 0.0d0
       do i = 1, n
-         sum = sum + abs(x(i)-y(i))
+         ind=(i - 1)*nconf + 1
+         sum = sum + abs(x(ind)-y(i))
       end do
       abserror = sum / dble(n)
       return
@@ -3011,18 +3097,19 @@ c     "rmserror" computes the root mean squared error between a set
 c     of "observed" values, x, and a set of "calculated" values, y
 c
 c
-      function rmserror (n,x,y)
+      function rmserror (n,x,y,nconf)
       implicit none
       integer maxrow
-      parameter (maxrow=100)
-      integer i,n
+      parameter (maxrow=1500)
+      integer i,n,ind,nconf
       real*8 rmserror,sum
       real*8 x(maxrow),y(maxrow)
 c
 c
       sum = 0.0d0
       do i = 1, n
-         sum = sum + (x(i)-y(i))**2
+         ind=(i - 1)*nconf + 1
+         sum = sum + (x(ind)-y(i))**2
       end do
       rmserror = sqrt(sum/dble(n))
       return
@@ -3192,8 +3279,9 @@ c
 c
 c================================================================================
 c
-      subroutine readinp(nf,idel,nsc,imat,nlv,ielec,ncomp,ntest,nad,
-     &     randtest,ncross,dielect,ptr,cutptr,comp,drugname,y,add)
+      subroutine readinp(nf,idel,nsc,imat,nlv,ielec,ncomp,ntest,nconf,
+     &    nad,randtest,ncross,dielect,ptr,cutptr,comp,drugname,y,add,
+     &    iave)
 
 c-------------------------------------------------------------------------------
 c --- Read input file (with filenames, drug names and activities)
@@ -3201,13 +3289,13 @@ c-------------------------------------------------------------------------------
 
       IMPLICIT      DOUBLE PRECISION (A-H,O-Z)
 
-      parameter    (maxcompl = 100)
-      parameter    (maxrow   = 100)
+      parameter    (maxcompl = 200)
+      parameter    (maxrow   = 1500)
       parameter    (maxadd   =  10)
       
       integer ptr, idel, nsc,imat, nlv
       integer ielec, iad,nad,ncomp,ntest
-      integer randtest,ncross
+      integer randtest,ncross,nconf,iave
 
       real*8 dielect, cutptr
 
@@ -3221,31 +3309,32 @@ c-------------------------------------------------------------------------------
       read(nf,'(2i5)') ncomp,ntest
       read(nf,'(i5,f10.5)') ptr,cutptr
       read(nf,'(2i5)') randtest,ncross
-      
-      write(16,*) '==> Compounds in training set: ', ncomp
+      read(nf,'(2i5)') nconf,iave
+
+      write(16,*) '==> Compounds in training set: ', ncomp*nconf
       if (iad.eq.0) then
-         do i = 1, ncomp
+         do i = 1, ncomp*nconf
             read(nf,'(a8,3x,a4,f10.5)')comp(i), drugname(i), y(i)
             write(16,'(a8,3x,a4,f10.5)')comp(i), drugname(i), y(i)
          enddo
          if (ntest .ne. 0) then
-            write(16,*) '==> Compounds in test set: ', ntest
-            n=ncomp
-            do i = 1, ntest
+            write(16,*) '==> Compounds in test set: ', ntest*nconf
+            n=ncomp*nconf
+            do i = 1, ntest*nconf
                n=n+1
                read(nf,'(a8,3x,a4,f10.5)') comp(n), drugname(n), y(n)
                write(16,'(a8,3x,a4,f10.5)')comp(n), drugname(n), y(n)
             enddo
          endif  
       else
-        do i = 1, ncomp
+        do i = 1, ncomp*nconf
           read(nf,10) comp(i),drugname(i),y(i),(add(i,j),j=1,nad)
           write(16,10) comp(i),drugname(i),y(i),(add(i,j),j=1,nad)
         enddo
         if (ntest .ne. 0) then
-          write(16,*) '==> Compounds in test set: ', ntest
-          n=ncomp
-          do i = 1, ntest
+          write(16,*) '==> Compounds in test set: ', ntest*nconf
+          n=ncomp*nconf
+          do i = 1, ntest*nconf
             n=n+1
             read(nf,10) comp(n),drugname(n),y(n),(add(n,j),j=1,nad)
             write(16,10) comp(n),drugname(n),y(n),(add(n,j),j=1,nad)
@@ -3262,7 +3351,7 @@ c    To be compliant with Absoft 4.5
 c
 c================================================================================
 c
-      subroutine scramble(nscram,nrow,y,yr)
+      subroutine scramble(nscram,nrow,nconf,y,yr)
 
 c------------------------------------------------------------------------------
 c     Initializes the random number generator. Then tests
@@ -3271,7 +3360,7 @@ c     Finally permutes randomly the y vector NSCRAM times.
 c     Results are stored in the array yr for further use.
 c------------------------------------------------------------------------------
 
-      parameter (maxrow=100)
+      parameter (maxrow=1500)
       parameter (maxscr=100)
 
       common/rands/irn
@@ -3280,7 +3369,7 @@ c------------------------------------------------------------------------------
       real          r(maxrow)
       integer       year,month,day
       integer       hour,minute,second
-      integer       seed,irandom,indx(maxrow)
+      integer       seed,irandom,indx(maxrow),p,ind,indi,nconf
 
 c------------------------------------------------------------------------------
 c preparation of irn
@@ -3326,14 +3415,15 @@ c------------------------------------------------------------------------------
 c Assign random activities
 c------------------------------------------------------------------------------
 
-c     write(16,*) (y(i), i=1,nrow)
+c     write(16,*) (y(i), i=1,nrow)  current method: structures treated
+c       independently
       do ktrial = 1, nscram
         do i = 1, nrow
           r(i) = rand(ise)
         enddo
         call indexx(nrow,r,indx)
         do i = 1, nrow
-           yr(i,ktrial) = y(indx(i))           
+           yr(i,ktrial) = y(indx(i))
         enddo
 c       write(16,*) ktrial, (yr(i,ktrial), i=1,nrow)
       enddo
@@ -3512,7 +3602,7 @@ c
 c==============================================================================
 c
       SUBROUTINE indexx(n,arr,indx)
-      parameter (maxrow=100)
+      parameter (maxrow=1500)
       INTEGER n,indx(maxrow),M,NSTACK
       REAL arr(maxrow)
       PARAMETER (M=7,NSTACK=50)
@@ -3593,7 +3683,7 @@ c
 
 c========================================================================
 
-      SUBROUTINE pretreat_xmatrix(nvt,nvtold,nad,ncomp,x,
+      SUBROUTINE pretreat_xmatrix(nvt,nvtold,nad,ncomp,nconf,x,
      &    ptr,cutpret,varselect)
 
 c------------------------------------------------------------------------
@@ -3609,10 +3699,10 @@ c------------------------------------------------------------------------
       integer i,j
       integer ptr
 
-      parameter (maxrow= 100)
+      parameter (maxrow=1500)
       parameter (maxcol=1500)
       
-      integer nvar,nvt,ncomp,nad,nvtold
+      integer nvar,nvt,ncomp,nconf,nad,nvtold
       integer varselect(maxcol)
 
       real*8 x(maxrow,maxcol),xpret(maxrow,maxcol)
@@ -3631,7 +3721,7 @@ c------------------------------------------------------------------------
           write (6,90)
  90       format (/,' Zeroing all positive energy values ',/)         
          do j = 1, nvt-nad
-            do i = 1, ncomp
+            do i = 1, ncomp*nconf
                if(x(i,j).gt.cut1) x(i,j) = 0.0d0
             end do
          enddo   
@@ -3639,7 +3729,7 @@ c------------------------------------------------------------------------
           write (6,94)
  94       format (/,' Zeroing positive van der Waal energy values ',/)    
          do j = 1, (nvt-nad)/2
-            do i = 1, ncomp
+            do i = 1, ncomp*nconf
                if(x(i,j).gt.cut1) x(i,j) = 0.0d0
             end do
          enddo   
@@ -3647,7 +3737,7 @@ c------------------------------------------------------------------------
          write (6,95)
  95      format (/,' Zeroing positive electrostatic energy values ',/)
          do j = (nvt-nad)/2+1,nvt-nad
-            do i = 1, ncomp
+            do i = 1, ncomp*nconf
                if(x(i,j).gt.cut1) x(i,j) = 0.0d0
             end do
          enddo         
@@ -3666,17 +3756,17 @@ c------------------------------------------------------------------------
 
          do j = 1, nvt
             xbar(j) = 0.0d0
-            do i = 1, ncomp
+            do i = 1, ncomp*nconf
                xbar(j) = xbar(j) + x(i,j)
             end do
-            xbar(j) = xbar(j) / dble(ncomp)
+            xbar(j) = xbar(j) / dble(ncomp*nconf)
          enddo
          do j = 1, nvt
             xstd(j) = 0.0d0
-            do i = 1, ncomp
+            do i = 1, ncomp*nconf
                xstd(j) = xstd(j) + (x(i,j)-xbar(j))**2
             end do
-            xstd(j) = sqrt(xstd(j)/dble(ncomp-1))
+            xstd(j) = sqrt(xstd(j)/dble((ncomp*nconf)-1))
          enddo  
          
 c------------------------------------------------------------------------
@@ -3689,7 +3779,7 @@ c------------------------------------------------------------------------
             if (xstd(i).gt.cut2)then
                nvar = nvar + 1
 c     print *,'variable selected',i,xstd(i)
-               do j=1,ncomp
+               do j=1,ncomp*nconf
                   xpret(j,nvar) = x(j,i)
                enddo
                varselect(i)=1            
@@ -3701,14 +3791,14 @@ c     Reasigment of Xmatrix
 c------------------------------------------------------------------------
 
          do i=1,nvar
-            do j=1,ncomp
+            do j=1,ncomp*nconf
                x(j,i) = 0.0d0
                x(j,i) = xpret(j,i)
             enddo
          enddo
 
          do i = nvar+1,nvt
-            do j=1,ncomp
+            do j=1,ncomp*nconf
                x(j,i) = 0.0d0
             enddo
          enddo
@@ -3920,7 +4010,7 @@ c------------------------------------------------------------------------
 
       integer maxrow,maxcol,maxres,maxatom
       
-      parameter (maxrow= 100)
+      parameter (maxrow=1500)
       parameter (maxcol=1500)
       parameter (maxres=700)
       parameter (maxatom=8000)
@@ -4132,8 +4222,8 @@ c     N elements, or for random grups of N elements
 c
 c===============================================================================
 
-      subroutine crossval(randtest,ncross,nrow,npred,ncol,nlv,name,yraw
-     &     ,ybar,xraw,nsc,ntest,m,nvtold,ypred)
+      subroutine crossval(randtest,ncross,nrow,npred,ncol,nconf,nlv,
+     &     name,yraw,ybar,xraw,nsc,ntest,m,nvtold,ypred,iave)
 
 c------------------------------------------------------------------------
 c     Variable declaration
@@ -4142,19 +4232,19 @@ c------------------------------------------------------------------------
       
       integer maxrow,maxcol,maxrank,ncross
 
-      parameter (maxrow=100)
+      parameter (maxrow=1500)
       parameter (maxcol=1500)
       parameter (maxrank=20)
 
-      integer nrow,npred,ncol,nsc,ntest,nqrank
+      integer nrow,npred,ncol,nsc,ntest,nqrank,nconf,iave
       integer varselect(maxcol),nvtold,nlv
-      integer i,j,k,l,m,n,randtest
+      integer i,j,k,l,m,n,randtest,ind,indn,p
       integer group(maxrow),low,grt
 
       character*4 name(maxrow),nameq(maxrow)
 
       real*8 yraw(maxrow),xraw(maxrow,maxcol)
-      real*8 yq(maxrow),xq(maxrow,maxcol)
+      real*8 yq(maxrow),xq(maxrow,maxcol),ypart(maxrow)
       real*8 xqbar(maxcol),xstd(maxcol),yqbar,yqstd,ybar
       real*8 ypred(maxrow)
       real*8 wq(maxcol)
@@ -4173,37 +4263,71 @@ c------------------------------------------------------------------------
 c     Leave N out
 c------------------------------------------------------------------------
       if (randtest.eq.0)then
-         do i = 1,(nrow/ncross)+1
-            do j = 1,(i-1)*ncross
+         do i = 1,(nrow/(ncross*nconf))+1
+            do j = 1,(i-1)*(ncross*nconf)
                nameq(j) = name(j)
                yq(j) = yraw(j)
             end do
-            do j = (i-1)*ncross+1,npred
-               nameq(j) = name(j+ncross)
-               yq(j) = yraw(j+ncross)
+            do j = (i-1)*(ncross*nconf)+1,(npred*nconf)
+               nameq(j) = name(j+ncross*nconf)
+               yq(j) = yraw(j+ncross*nconf)
             end do
             do k = 1, ncol
-               do j = 1, (i-1)*ncross
+               do j = 1, (i-1)*ncross*nconf
                   xq(j,k) = xraw(j,k)
                end do
-               do j = (i-1)*ncross+1, npred
-                  xq(j,k) = xraw(j+ncross,k)
+               do j = (i-1)*ncross*nconf+1, npred*nconf
+                  xq(j,k) = xraw(j+ncross*nconf,k)
                end do
             end do
 
-            call yscale(nsc,npred,ntest,yq,yqbar,yqstd)           
+            call yscale(nsc,npred*nconf,nconf,ntest,yq,yqbar,yqstd)           
 c     call xscale(nsc,npred,ncol,ntest,xq,xqbar,xstd,xqstd)
-            call xscale(nsc,npred,ncol,ntest,xq,xqbar,xstd,wq)
-            call nipals(nlv,npred,ncol,yq,xq,nqrank,bq,vardesc,varselect
-     &           ,nvtold,verbose)
-            do l = (i-1)*ncross+1,(i-1)*ncross+ncross
-               ypred(l) = 0.0d0
-               do j = 1, ncol
-                  if (xraw(l,j).eq.Z'FFFFFFFF') xraw(l,j)=0.0d0
-                  ypred(l) = ypred(l)+bq(j,m)*(xraw(l,j)-xqbar(j))*wq(j)
-               end do
-               ypred(l) = ypred(l)*yqstd + yqbar
-            enddo            
+            call xscale(nsc,npred*nconf,ncol,ntest,nconf,xq,xqbar,xstd,
+     &           wq)
+            call nipals(nlv,npred*nconf,ncol,yq,xq,nqrank,bq,vardesc,
+     &           varselect,nvtold,verbose)
+C opt 1: arithmetic mean
+            if (iave .eq. 1) then
+               do l = (i-1)*ncross+1,(i-1)*ncross+ncross
+                  ypred(l) = 0.0d0
+                  do p = 1, nconf
+                     ypart(p) = 0.0d0
+                     ind = (l - 1)*nconf + p
+                     do j = 1, ncol
+                        if (xraw(ind,j).eq.Z'FFFFFFFF') then
+                           xraw(ind,j)=0.0d0
+                        endif
+                        ypart(p) = ypart(p)+bq(j,m)
+     &                             *(xraw(ind,j)-xqbar(j))*wq(j)
+                     end do
+                     ypart(p) = ypart(p)*yqstd + yqbar
+                     ypred(l) = ypred(l) + ypart(p) 
+                  enddo
+                  ypred(l) = ypred(l) / nconf
+               enddo       
+
+C opt 2: exponential mean
+            else
+               do l = (i-1)*ncross+1,(i-1)*ncross+ncross
+                  ypred(l) = 0.0d0
+                  do p = 1, nconf
+                     ypart(p) = 0.0d0
+                     ind = (l - 1)*nconf + p
+                     do j = 1, ncol
+                        if (xraw(ind,j).eq.Z'FFFFFFFF') then
+                           xraw(ind,j)=0.0d0
+                        endif
+                        ypart(p) = ypart(p)+bq(j,m)
+     &                             *(xraw(ind,j)-xqbar(j))*wq(j)
+                     end do
+                     ypart(p) = ypart(p)*yqstd + yqbar
+                     ypred(l) = ypred(l) + exp(-1.0*ypart(p))
+                  enddo
+                  ypred(l) = -1.0*log(ypred(l) / nconf)
+               enddo
+            endif
+
          end do
       else
 
@@ -4211,12 +4335,12 @@ c------------------------------------------------------------------------
 c     Random Groups
 c------------------------------------------------------------------------
 
-         call randnum(nrow,r)
+         call randnum((nrow/nconf),r)
          
-         do i =1,nrow
+         do i =1,(nrow/nconf)
             low = 0
             grt = 0
-            do j=1,nrow
+            do j=1,(nrow/nconf)
                if (r(i).lt.r(j)) then
                   low = low + 1
                else
@@ -4224,7 +4348,7 @@ c------------------------------------------------------------------------
                endif
             enddo
             k=0
-            do while (k*ncross.le.nrow)
+            do while (k*ncross.le.(nrow/nconf))
                k = k +1
                if(low.lt.k*ncross)then
                   group(i)=k
@@ -4232,42 +4356,76 @@ c------------------------------------------------------------------------
                endif
             enddo
          enddo
-         
+
          i=0
                   
-         do while (i*ncross.le.nrow)
+         do while (i*ncross.le.(nrow/nconf))
             i = i +1
             n=0
-            do j=1,nrow
+            do j=1,(nrow/nconf)
                if (group(j).ne.i)then
                   n=n+1
-                  nameq(n) = name(j)
-                  yq(n) = yraw(j)
-                  do l = 1, ncol
-                     xq(n,l) = xraw(j,l)
-                  enddo                   
+                  do p = 1, nconf
+                     ind = (j - 1)*nconf + p
+                     indn = (n - 1)*nconf + p 
+                     nameq(indn) = name(ind)
+                     yq(indn) = yraw(ind)
+                     do l = 1, ncol
+                        xq(indn,l) = xraw(ind,l)
+                     enddo                   
 c                  print*,yq(n),n
+                  enddo
                endif
 c               print*,j
             enddo
   
-            call yscale(nsc,npred,ntest,yq,yqbar,yqstd)           
+            call yscale(nsc,npred,nconf,ntest,yq,yqbar,yqstd)           
 c     call xscale(nsc,npred,ncol,ntest,xq,xqbar,xstd,xqstd)
-            call xscale(nsc,npred,ncol,ntest,xq,xqbar,xstd,wq)
+            call xscale(nsc,npred,ncol,ntest,nconf,xq,xqbar,xstd,wq)
             call nipals(nlv,npred,ncol,yq,xq,nqrank,bq,vardesc,varselect
      &           ,nvtold,verbose)
-            
-            do l =1,nrow
-               if(group(l).eq.i)then
-                  ypred(l) = 0.0d0
-                  do j = 1, ncol
-                     if (xraw(l,j).eq.Z'FFFFFFFF') xraw(l,j)=0.0d0
-                     ypred(l) = ypred(l)+bq(j,m)*(xraw(l,j)-xqbar(j))*
-     &                    wq(j)
-                  end do
-                  ypred(l) = ypred(l)*yqstd + yqbar
-               endif
-            enddo            
+
+C opt 1: arithmetic mean
+            if (iave .eq. 1) then
+               do l =1,(nrow/nconf)
+                  if(group(l).eq.i)then
+                     ypred(l) = 0.0d0
+                     do p = 1, nconf
+                        ypart(p) = 0.0d0
+                        ind = (l - 1)*nconf + p
+                        do j = 1, ncol
+                           if (xraw(ind,j).eq.Z'FFFFFFFF') xraw(ind,j)=0.0d0
+                           ypart(p) = ypart(p)+bq(j,m)
+     &                                *(xraw(ind,j)-xqbar(j))*wq(j)
+                        end do
+                        ypart(p) = ypart(p)*yqstd + yqbar
+                        ypred(l) = ypred(l) + ypart(p)
+                     end do
+                     ypred(l) = ypred(l) / nconf
+                  endif
+               enddo
+
+C opt 2: exponential mean
+            else
+               do l =1,(nrow/nconf)
+                  if(group(l).eq.i)then
+                     ypred(l) = 0.0d0
+                     do p = 1, nconf
+                        ypart(p) = 0.0d0
+                        ind = (l - 1)*nconf + p
+                        do j = 1, ncol
+                           if (xraw(ind,j).eq.Z'FFFFFFFF') xraw(ind,j)=0.0d0
+                           ypart(p) = ypart(p)+bq(j,m)
+     &                                *(xraw(ind,j)-xqbar(j))*wq(j)
+                        end do
+                        ypart(p) = ypart(p)*yqstd + yqbar
+                        ypred(l) = ypred(l) + exp(-1.0*ypart(p))
+                     end do
+                     ypred(l) = -1.0*log(ypred(l) / nconf)
+                  endif
+               enddo
+            endif
+
          end do
       endif
 
@@ -4290,7 +4448,7 @@ c===============================================================================
       
       integer maxrow,n
 
-      parameter (maxrow=100)
+      parameter (maxrow=1500)
 
       real*8 r(maxrow)
       real rand
@@ -4411,8 +4569,8 @@ c=========================================================
       implicit none
       
       integer input
-      character*(*) output
-      
+      character*6 output
+
       integer myMod
       integer remainingNum
       character*1 addNum
