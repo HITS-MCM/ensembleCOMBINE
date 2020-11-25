@@ -38,7 +38,7 @@ The parent directory contains files:
 - Makefile  
 - param.h
 
-The directory 'example' contains the file
+The directory 'example' contains the file:
 - exec.sh: script to execute the COMBINE analysis (same commands as in steps 1-3 below)
 
 The directory 'example/p38' contains files:
@@ -63,7 +63,7 @@ Steps
 1- download the branch 'ensemble' from github and decompress the directory 'p38'
 In the directory downloaded:
 > cd example
-> unzip p38.zip
+> tar -xf p38.tar.xz
 > cd ..
 
 2- compile the code
@@ -103,7 +103,7 @@ training set, and the following 110 complexes (11 inhibitors, each represented b
 the test set.
 
 To run COMBINE analysis:
-> cd p38
+> cd example/p38
 > ../../combine.exe -i combine.in -o combine.out
 
 4- comparison with expected results

@@ -1,7 +1,7 @@
 
 # to be executed in the parent directory
 cd example
-unzip p38.zip
+tar -xf p38.tar.xz
 cd ..
 
 make
